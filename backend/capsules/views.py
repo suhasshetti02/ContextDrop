@@ -37,6 +37,12 @@ def ingest_document(request):
     if not uploaded_file and not url_input:
         return Response({'error': 'No file uploaded and no URL provided'}, status=status.HTTP_400_BAD_REQUEST)
 
+    if url_input:
+        # Basic SSRF protection
+        lower_url = url_input.lower()
+        if 'localhost' in lower_url or '127.0.0.1' in lower_url or '169.254.169.254' in lower_url:
+            return Response({'error': 'Internal or metadata URLs are not allowed'}, status=status.HTTP_400_BAD_REQUEST)
+
     ttl_days = request.data.get('ttl_days', 7)  # default to 7 days
     
     # Generate unique slug
