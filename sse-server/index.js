@@ -14,6 +14,26 @@ const DJANGO_API_URL = process.env.DJANGO_API_URL || 'http://localhost:8000';
 app.use(cors());
 app.use(express.json());
 
+// JSON Logger helper
+const logger = {
+  info: (msg, meta = {}) => console.log(JSON.stringify({ level: 'info', timestamp: new Date().toISOString(), message: msg, ...meta })),
+  error: (msg, meta = {}) => console.error(JSON.stringify({ level: 'error', timestamp: new Date().toISOString(), message: msg, ...meta }))
+};
+
+// Health Checks
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+app.get('/readiness', async (req, res) => {
+  try {
+    if (redisClient.isOpen) {
+      res.status(200).json({ status: 'ready', redis: 'connected' });
+    } else {
+      res.status(503).json({ status: 'not_ready', redis: 'disconnected' });
+    }
+  } catch (err) {
+    res.status(503).json({ status: 'error', message: err.message });
+  }
+});
+
 // Initialize Redis Client for Rate Limiting
 // Upstash (and other hosted Redis) requires TLS — use rediss:// scheme.
 // The client auto-detects TLS from the URL but we also set socket options explicitly.
@@ -64,14 +84,20 @@ app.get('/stream/:slug', async (req, res) => {
   let requestCount = 0;
 
   try {
-    if (redisClient.isOpen) {
-      requestCount = await redisClient.incr(redisKey);
-      if (requestCount === 1) {
-        await redisClient.expire(redisKey, 60); // 1-minute window
-      }
+    if (!redisClient.isOpen) {
+      throw new Error("Redis client is not open");
+    }
+    requestCount = await redisClient.incr(redisKey);
+    if (requestCount === 1) {
+      await redisClient.expire(redisKey, 60); // 1-minute window
     }
   } catch (err) {
-    console.error('Redis rate limit check error:', err.message);
+    logger.error('Redis rate limit check error', { error: err.message, clientIp });
+    // FAIL CLOSED: Protect the LLM from abuse if rate limiter is down
+    res.write(`data: ${JSON.stringify({ text: "Error: Rate limiting service unavailable. Please try again later." })}\n\n`);
+    res.write(`data: [DONE]\n\n`);
+    res.end();
+    return;
   }
 
   if (requestCount > 5) {
@@ -120,8 +146,8 @@ app.get('/stream/:slug', async (req, res) => {
     chunksData = searchData.chunks || [];
     domain = searchData.domain || 'general';
   } catch (err) {
-    console.error('Failed to retrieve capsule chunks from Django backend:', err.message);
-    res.write(`data: ${JSON.stringify({ text: `[Error: Failed to connect to backend search context.]\n\n` })}\n\n`);
+    logger.error('Failed to retrieve capsule chunks from Django backend', { error: err.message, slug });
+    res.write(`data: ${JSON.stringify({ text: `I couldn't find enough information in the uploaded document to answer this.` })}\n\n`);
     res.write(`data: [DONE]\n\n`);
     res.end();
     return;
@@ -135,13 +161,22 @@ app.get('/stream/:slug', async (req, res) => {
       const secInfo = c.section_title ? `, Section ${c.section_title}` : '';
       return `--- Excerpt ${idx + 1} (${pageInfo}${secInfo}) ---\n${c.text}\n---`;
     }).join('\n\n');
+    
+    // Check if context exceeds limit
+    if (contextText.length > 25000) { // Limit roughly 6000 tokens
+       contextText = contextText.substring(0, 25000);
+    }
   } else {
-    contextText = '[No relevant document excerpts found]';
+    // If no relevant chunks are found
+    res.write(`data: ${JSON.stringify({ text: `I couldn't find enough information in the uploaded document to answer this.` })}\n\n`);
+    res.write(`data: [DONE]\n\n`);
+    res.end();
+    return;
   }
 
   // 4. Construct the grounded dynamic tone RAG prompt
   const activeTone = domainTones[domain] || domainTones.general;
-  const systemPrompt = `You are a document assistant. You may ONLY answer questions using the provided document excerpts. If the answer is not in the excerpts, say exactly: "This document doesn't cover that." Do not use any outside knowledge. Always cite the source chunk (page number and section title) at the end of your answer in the format [Page X, Section Y].
+  const systemPrompt = `You are a document assistant. You may ONLY answer questions using the provided document excerpts. If the answer is not in the excerpts, say exactly: "I couldn't find enough information in the uploaded document to answer this." Do not use any outside knowledge. Always cite the source chunk (page number and section title) at the end of your answer in the format [Page X, Section Y].
 
 Domain context: ${activeTone}`;
 
@@ -150,7 +185,7 @@ ${contextText}
 
 User question: ${question}`;
 
-  console.log(`Streaming query for capsule: ${slug} | Domain: ${domain}`);
+  logger.info('Streaming query', { slug, domain });
 
   let fullReply = '';
 
@@ -160,7 +195,7 @@ User question: ${question}`;
 
   if (useGroq) {
     try {
-      console.log('Using Groq API for streaming completion...');
+      logger.info('Using Groq API for streaming completion');
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -186,7 +221,7 @@ User question: ${question}`;
       logAnalyticsHelper(slug, question, chunksData, fullReply);
       return;
     } catch (err) {
-      console.error('Groq streaming failed, falling back to local Ollama:', err.message);
+      logger.error('Groq streaming failed, falling back to local Ollama', { error: err.message });
       res.write(`data: ${JSON.stringify({ text: `[Fallback to local Ollama offline assistant...]\n\n` })}\n\n`);
     }
   }
@@ -218,8 +253,8 @@ User question: ${question}`;
     fullReply = await streamCompletion(response, res, 'ollama');
     logAnalyticsHelper(slug, question, chunksData, fullReply);
   } catch (err) {
-    console.error('All LLM endpoints failed:', err.message);
-    res.write(`data: ${JSON.stringify({ text: `Error: Unable to connect to LLM provider (both Groq and Ollama are offline).` })}\n\n`);
+    logger.error('All LLM endpoints failed', { error: err.message });
+    res.write(`data: ${JSON.stringify({ text: `I couldn't find enough information in the uploaded document to answer this.` })}\n\n`);
     res.write(`data: [DONE]\n\n`);
     res.end();
   }
@@ -310,6 +345,10 @@ function logAnalyticsHelper(slug, question, chunksData, fullReply) {
   }).catch(err => console.error('Failed to log analytic to Django:', err.message));
 }
 
-app.listen(PORT, () => {
-  console.log(`SSE Server running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    logger.info(`SSE Server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;

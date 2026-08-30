@@ -1,0 +1,10 @@
+[
+  {
+    "question": "What is the primary LLM used in ContextDrop?",
+    "expected_text_snippet": "Groq as primary LLM"
+  },
+  {
+    "question": "How is URL ingestion vulnerable?",
+    "expected_text_snippet": "URL ingestion has an SSRF vulnerability"
+  }
+]

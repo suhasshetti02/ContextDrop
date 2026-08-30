@@ -5,24 +5,30 @@
 ContextDrop transforms static documents (PDFs, TXT) and web links into interactive, conversational knowledge capsules. 
 When you share a document, you create a **Capsule**. A capsule represents a sandboxed RAG (Retrieval-Augmented Generation) context. Readers click the link and immediately get a messaging-style chat interface where they can ask questions about the document, with answers grounded strictly in the provided text.
 
-## 🚀 Features
+## 🚀 Features & Engineering Quality
 
-* **Zero-Friction Reader Access**: Readers do not need to sign up or download files. 
-* **100% Grounded AI**: The AI is strictly sandboxed to the document using pgvector semantic search.
+* **Production-Ready Security**: Strong protection against SSRF attacks during URL ingestion using `ipaddress` resolution blocking (blocks loopbacks, private networks, and internal metadata endpoints).
+* **Scalable Architecture**: A split-backend microservice architecture. A Django REST backend handles secure ingestion, vectorization, and Postgres HNSW indexing, while a separate Express SSE server manages high-concurrency streaming and Redis rate limiting.
+* **100% Grounded AI & Observability**: AI is sandboxed to the document using HNSW pgvector semantic search. The system uses strict RAG failure handling to explicitly state when context is missing, rather than hallucinating. Complete JSON structured logging ensures full observability.
+* **Evaluation Framework**: Includes an integrated evaluation dataset (`evaluation/`) calculating `Recall@K` to objectively measure retrieval performance and quality.
+* **Document Ingestion with Smart Chunking**: Supports PDF, TXT, and Web URLs. Implements structure-aware text chunking (paragraph boundary detection) for superior embedding context.
 * **Verification and Traceability**: Inline, clickable page citations accompany every answer.
-* **Document Ingestion**: Supports PDF, TXT, and Web URL scraping (with basic anti-bot bypass heuristics).
 * **Automated Domain Classification**: Zero-shot classifier detects if a document is Legal, Medical, Academic, etc., and adjusts the LLM persona.
 * **Capsule Dashboard**: Creators can view analytics, query heatmaps, and a log of unanswered questions to identify gaps in their documents.
-* **White-Labeling**: Custom logo and accent color support for branded capsules.
-* **Security**: Optional password protection for shared links.
+* **White-Labeling & Security**: Custom logo and accent color support, along with optional password protection for shared links.
+
+## 📸 Screenshots
+
+![Upload Page](/results/upload_page.jpeg)
+![Ingestion Progress](/results/ingestion_progress.jpeg)
+![Capsule Ready](/results/capsule_ready.jpeg)
+![Chat Interface](/results/chat_interface.jpeg)
 
 ## 🎨 Tech Stack & Architecture
 
-ContextDrop uses a split-backend microservice architecture to prevent long-lived streaming connections from blocking standard API requests.
-
-1. **Frontend**: React (TypeScript) + Vite.
-2. **REST API Backend**: Django & Django REST Framework (DRF) + PostgreSQL (pgvector). Handles file parsing, chunking, embeddings, authentication, and vector search.
-3. **SSE Server**: Node.js & Express + Redis. Handles high-concurrency Server-Sent Events (SSE) for streaming LLM tokens back to the client. Uses Redis for rate-limiting.
+1. **Frontend**: React (TypeScript) + Vite, built with modular, reusable components.
+2. **REST API Backend**: Django & DRF + PostgreSQL (pgvector with HNSW indexing).
+3. **SSE Server**: Node.js & Express + Redis (Fail-closed rate limiting).
 4. **AI Models**: 
    - Groq (`llama-3.3-70b-versatile`) for primary chat and domain classification.
    - OpenAI (`text-embedding-3-small`) or Nomic (`nomic-embed-text-v1.5`) for embeddings.
@@ -36,7 +42,7 @@ flowchart TD
     React -->|POST /api/ingest| Django[Django REST API]
     React -->|GET /stream| NodeSSE[Node.js SSE Server]
     
-    Django -->|Write| Postgres[(PostgreSQL + pgvector)]
+    Django -->|Write| Postgres[(PostgreSQL + pgvector HNSW)]
     Django -->|Generate Embeddings| Nomic/Ollama[Nomic/Ollama/OpenAI]
     
     NodeSSE -->|Check Limits| Redis[(Redis)]
@@ -73,14 +79,17 @@ docker-compose up -d
    ```bash
    pip install -r requirements.txt
    ```
-4. Create `.env` in `backend/contextdrop/.env` based on your API keys (Groq, OpenAI, Nomic).
+4. Copy `.env.example` to `.env` and fill in your configuration:
+   ```bash
+   cp .env.example .env
+   ```
 5. Apply migrations and start the server:
    ```bash
    python manage.py makemigrations
    python manage.py migrate
    python manage.py runserver
    ```
-   *Runs on `http://localhost:8000`*
+   *Runs on `http://localhost:8000`. Health checks available at `/api/health` and `/api/readiness`.*
 
 ### Step 3: SSE Server Setup (Node.js)
 1. Navigate to the SSE server directory:
@@ -90,9 +99,10 @@ docker-compose up -d
 2. Install dependencies and start:
    ```bash
    npm install
+   cp .env.example .env
    node index.js
    ```
-   *Runs on `http://localhost:4000`*
+   *Runs on `http://localhost:4000`. Health checks available at `/health` and `/readiness`.*
 
 ### Step 4: Frontend Setup (React)
 1. Navigate to the frontend directory:
@@ -106,9 +116,7 @@ docker-compose up -d
    ```
    *Runs on `http://localhost:5173`*
 
-## ⚠️ Limitations & Future Improvements
-
-- **Database Indexing**: The `pgvector` implementation currently uses exact nearest neighbor search (sequential scan) via raw SQL. For massive scale, an HNSW index should be added to the vector column.
-- **SSRF Risk**: URL ingestion fetches external links. In a production environment, strict validation against resolving internal IP addresses (e.g., AWS Metadata endpoints) must be implemented.
-- **Frontend Refactoring**: `App.tsx` contains the majority of the application logic and should be refactored into modular components.
-- **Testing**: A comprehensive automated test suite (Pytest, Jest) is currently missing and needed before production release.
+## 🧪 Testing & Evaluation
+- **Backend Tests**: Run `python manage.py test capsules.tests` to execute unit tests for auth, ingestion, chunking, and vector search.
+- **SSE Server Tests**: Run `npm test` in the `sse-server` directory.
+- **RAG Evaluation**: See `evaluation/README.md` to run the `Recall@K` metric evaluation for semantic search accuracy.

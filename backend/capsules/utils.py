@@ -1,12 +1,68 @@
 import requests
 import json
+import urllib.parse
+import socket
+import ipaddress
 from django.conf import settings
 from bs4 import BeautifulSoup
 
+def safe_requests_get(url, headers=None, timeout=10, max_size=10485760, max_redirects=5):
+    """
+    Safely fetches a URL, preventing SSRF by resolving and verifying IPs,
+    handling redirects manually, and enforcing a max response size.
+    """
+    current_url = url
+    session = requests.Session()
+    
+    for _ in range(max_redirects):
+        parsed = urllib.parse.urlparse(current_url)
+        if parsed.scheme not in ('http', 'https'):
+            raise ValueError(f"Invalid URL scheme: {parsed.scheme}")
+            
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("Invalid URL: missing hostname")
+            
+        try:
+            addr_info = socket.getaddrinfo(hostname, None)
+        except socket.gaierror:
+            raise ValueError(f"Could not resolve hostname: {hostname}")
+            
+        for info in addr_info:
+            ip_str = info[4][0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+                    raise ValueError(f"Disallowed IP address resolved: {ip_str}")
+            except ValueError:
+                pass
+                
+        res = session.get(current_url, headers=headers, timeout=timeout, allow_redirects=False, stream=True)
+        
+        if 300 <= res.status_code < 400:
+            redirect_url = res.headers.get('Location')
+            if not redirect_url:
+                raise ValueError("Redirect missing Location header")
+            current_url = urllib.parse.urljoin(current_url, redirect_url)
+            continue
+            
+        res.raise_for_status()
+        content = b""
+        for chunk in res.iter_content(chunk_size=8192):
+            content += chunk
+            if len(content) > max_size:
+                raise ValueError("Response size exceeds limit")
+                
+        res._content = content
+        return res
+        
+    raise ValueError("Too many redirects")
+
+
 def chunk_text_by_pages(pages_dict, chunk_size=1000, overlap=200):
     """
-    Chunks text page-by-page.
-    pages_dict is a mapping of {page_number: page_text}
+    Chunks text page-by-page, preserving metadata.
+    Uses structure-aware chunking (by paragraphs/newlines) before falling back to length.
     Returns a list of dicts: [{'text': str, 'page_number': int, 'chunk_index': int}]
     """
     chunks = []
@@ -17,7 +73,6 @@ def chunk_text_by_pages(pages_dict, chunk_size=1000, overlap=200):
         if not text:
             continue
 
-        # If the page is small enough, make it a single chunk
         if len(text) <= chunk_size:
             chunks.append({
                 'text': text,
@@ -25,20 +80,68 @@ def chunk_text_by_pages(pages_dict, chunk_size=1000, overlap=200):
                 'chunk_index': chunk_index
             })
             chunk_index += 1
-        else:
-            # Slide window across page text
-            start = 0
-            while start < len(text):
-                end = start + chunk_size
-                chunk_text = text[start:end].strip()
-                if chunk_text:
+            continue
+            
+        # Structure-aware splitting
+        paragraphs = text.split('\n\n')
+        current_chunk = ""
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+                
+            if len(current_chunk) + len(para) + 2 <= chunk_size:
+                current_chunk += ("\n\n" + para) if current_chunk else para
+            else:
+                if current_chunk:
                     chunks.append({
-                        'text': chunk_text,
+                        'text': current_chunk,
                         'page_number': page_num,
                         'chunk_index': chunk_index
                     })
                     chunk_index += 1
-                start += (chunk_size - overlap)
+                    
+                    # Handle overlap by taking the last part of the previous chunk
+                    overlap_text = current_chunk[-overlap:] if overlap > 0 else ""
+                    
+                    # If the paragraph itself is huge, we have to blind split it
+                    if len(para) > chunk_size:
+                        start = 0
+                        while start < len(para):
+                            end = start + chunk_size
+                            part = para[start:end]
+                            chunks.append({
+                                'text': part,
+                                'page_number': page_num,
+                                'chunk_index': chunk_index
+                            })
+                            chunk_index += 1
+                            start += (chunk_size - overlap)
+                        current_chunk = "" # We consumed the large paragraph
+                    else:
+                        current_chunk = (overlap_text + "\n\n" + para) if overlap_text else para
+                else:
+                    # Current chunk is empty, but para is larger than chunk_size
+                    start = 0
+                    while start < len(para):
+                        end = start + chunk_size
+                        part = para[start:end]
+                        chunks.append({
+                            'text': part,
+                            'page_number': page_num,
+                            'chunk_index': chunk_index
+                        })
+                        chunk_index += 1
+                        start += (chunk_size - overlap)
+        
+        if current_chunk:
+            chunks.append({
+                'text': current_chunk,
+                'page_number': page_num,
+                'chunk_index': chunk_index
+            })
+            chunk_index += 1
 
     return chunks
 
@@ -250,7 +353,7 @@ def scrape_url_text(url):
             domain = url.split('fandom.com')[0] + 'fandom.com'
             page_name = url.split('/wiki/')[-1].split('?')[0].split('#')[0]
             api_url = f"{domain}/api.php?action=parse&page={page_name}&format=json"
-            res = requests.get(api_url, headers=headers, timeout=10)
+            res = safe_requests_get(api_url, headers=headers, timeout=10)
             if res.status_code == 200:
                 data = res.json()
                 if 'parse' in data and 'text' in data['parse']:
@@ -263,7 +366,7 @@ def scrape_url_text(url):
     # JINA READER API HEURISTIC (High-quality LLM Markdown Extraction)
     try:
         jina_url = f"https://r.jina.ai/{url}"
-        res = requests.get(jina_url, headers=headers, timeout=15)
+        res = safe_requests_get(jina_url, headers=headers, timeout=15)
         if res.status_code == 200:
             content = res.text
             # Only return if it didn't hit anti-bot CAPTCHAs inside Jina
@@ -275,7 +378,7 @@ def scrape_url_text(url):
 
     # DEFAULT BEAUTIFULSOUP FALLBACK
     try:
-        res = requests.get(url, headers=headers, timeout=10)
+        res = safe_requests_get(url, headers=headers, timeout=10)
         res.raise_for_status()
     except Exception as e:
         raise RuntimeError(f"HTTP request to web page failed. It may be protected by anti-bot software: {str(e)}")

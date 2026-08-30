@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import ingest_document, search_capsule, verify_capsule, log_analytic, get_analytics
-from .views import register_user, login_user, logout_user, list_user_capsules, update_capsule_tags
+from .views import register_user, login_user, logout_user, list_user_capsules, update_capsule_tags, health_check, readiness_check
 
 urlpatterns = [
     path('ingest', ingest_document, name='ingest_document'),
@@ -15,4 +15,8 @@ urlpatterns = [
     path('auth/logout', logout_user, name='logout_user'),
     path('user/capsules', list_user_capsules, name='list_user_capsules'),
     path('capsules/<str:slug>/tags', update_capsule_tags, name='update_capsule_tags'),
+    
+    # Health checks (Phase 10)
+    path('health', health_check, name='health_check'),
+    path('readiness', readiness_check, name='readiness_check'),
 ]

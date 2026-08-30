@@ -37,11 +37,6 @@ def ingest_document(request):
     if not uploaded_file and not url_input:
         return Response({'error': 'No file uploaded and no URL provided'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if url_input:
-        # Basic SSRF protection
-        lower_url = url_input.lower()
-        if 'localhost' in lower_url or '127.0.0.1' in lower_url or '169.254.169.254' in lower_url:
-            return Response({'error': 'Internal or metadata URLs are not allowed'}, status=status.HTTP_400_BAD_REQUEST)
 
     ttl_days = request.data.get('ttl_days', 7)  # default to 7 days
     
@@ -434,3 +429,26 @@ def update_capsule_tags(request, slug):
             except Tag.DoesNotExist:
                 return Response({'error': 'tag not found'}, status=404)
         return Response({'error': 'no tag provided'}, status=400)
+
+from django.db import connection
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def health_check(request):
+    import logging
+    logger = logging.getLogger('capsules')
+    logger.info("Health check endpoint called")
+    return Response({'status': 'ok'})
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def readiness_check(request):
+    import logging
+    logger = logging.getLogger('capsules')
+    try:
+        connection.ensure_connection()
+        logger.info("Readiness check passed")
+        return Response({'status': 'ready', 'database': 'connected'})
+    except Exception as e:
+        logger.error(f"Readiness check failed: {e}")
+        return Response({'status': 'not_ready', 'database': 'disconnected'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

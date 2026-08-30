@@ -158,3 +158,48 @@ GROQ_API_KEY = env('GROQ_API_KEY', default='')
 OLLAMA_HOST = env('OLLAMA_HOST', default='http://localhost:11434')
 INTERNAL_API_KEY = env('INTERNAL_API_KEY', default='default-internal-secret-key-12345')
 
+# Observability (Phase 9)
+import json
+import logging
+
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_record = {
+            "level": record.levelname,
+            "timestamp": self.formatTime(record, self.datefmt),
+            "message": record.getMessage(),
+            "logger": record.name,
+            "module": record.module,
+        }
+        if record.exc_info:
+            log_record["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(log_record)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'json': {
+            '()': JSONFormatter,
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'json',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': env('DJANGO_LOG_LEVEL', default='INFO'),
+            'propagate': True,
+        },
+        'capsules': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}
+
