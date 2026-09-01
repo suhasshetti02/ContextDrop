@@ -7,11 +7,11 @@ from django.db import connection
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.hashers import make_password, check_password
 from django.conf import settings
-from rest_framework.decorators import api_view, parser_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
@@ -20,12 +20,40 @@ from pypdf import PdfReader
 from .models import Capsule, DocumentChunk, CapsuleAnalytic
 from .utils import chunk_text_by_pages, get_embedding, classify_domain, scrape_url_text, generate_suggested_questions
 
+import hmac
+import time
+
 def is_internal_request(request):
-    auth_header = request.headers.get('Authorization') or request.META.get('HTTP_AUTHORIZATION')
-    if auth_header and auth_header.startswith('Bearer '):
-        token = auth_header.split('Bearer ')[1].strip()
-        return token == settings.INTERNAL_API_KEY
-    return False
+    signature = request.headers.get('X-Signature')
+    timestamp = request.headers.get('X-Timestamp')
+    
+    if not signature or not timestamp:
+        return False
+        
+    try:
+        ts_int = int(timestamp)
+        now = int(time.time() * 1000)
+        # 5 minute replay protection (300,000 ms)
+        if abs(now - ts_int) > 300000:
+            return False
+    except ValueError:
+        return False
+
+    try:
+        body_bytes = request.body
+        body_string = body_bytes.decode('utf-8') if body_bytes else ''
+    except Exception:
+        body_string = ''
+
+    method = request.method
+    path = request.path
+
+    secret_key = settings.INTERNAL_API_KEY.encode('utf-8')
+    payload = f"{method}{path}{timestamp}{body_string}".encode('utf-8')
+    
+    expected_hmac = hmac.new(secret_key, payload, hashlib.sha256).hexdigest()
+    
+    return hmac.compare_digest(expected_hmac, signature)
 
 
 @api_view(['POST'])

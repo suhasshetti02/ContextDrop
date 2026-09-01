@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('redis');
+const crypto = require('crypto');
 
 // Load environment variables from backend/.env
 require('dotenv').config({ path: path.join(__dirname, '../backend/.env') });
@@ -10,6 +11,8 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'default-internal-secret-key-12345';
 const DJANGO_API_URL = process.env.DJANGO_API_URL || 'http://localhost:8000';
+
+const UNANSWERED_STRING = "I couldn't find enough information in the uploaded document to answer this.";
 
 app.use(cors());
 app.use(express.json());
@@ -61,6 +64,18 @@ const domainTones = {
   general: "Use a helpful, clear, and professional tone."
 };
 
+// Helper for HMAC signing
+function getSignatureHeaders(method, requestPath, bodyString = '') {
+  const timestamp = Date.now().toString();
+  const hmac = crypto.createHmac('sha256', INTERNAL_API_KEY);
+  const signature = hmac.update(method + requestPath + timestamp + bodyString).digest('hex');
+  return {
+    'X-Signature': signature,
+    'X-Timestamp': timestamp
+  };
+}
+
+
 // Main SSE Stream Endpoint
 app.get('/stream/:slug', async (req, res) => {
   const { slug } = req.params;
@@ -81,16 +96,21 @@ app.get('/stream/:slug', async (req, res) => {
   // 1. IP-Based Rate Limiting via Redis
   const clientIp = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const redisKey = `rate:ip:${clientIp}`;
+
   let requestCount = 0;
 
   try {
     if (!redisClient.isOpen) {
       throw new Error("Redis client is not open");
     }
-    requestCount = await redisClient.incr(redisKey);
-    if (requestCount === 1) {
-      await redisClient.expire(redisKey, 60); // 1-minute window
-    }
+    // MULTI/EXEC block for atomic rate limiting
+    const [count] = await redisClient
+      .multi()
+      .incr(redisKey)
+      .expire(redisKey, 60, 'NX') // Set expire only if key does not have an expiry
+      .exec();
+      
+    requestCount = count;
   } catch (err) {
     logger.error('Redis rate limit check error', { error: err.message, clientIp });
     // FAIL CLOSED: Protect the LLM from abuse if rate limiter is down
@@ -113,13 +133,17 @@ app.get('/stream/:slug', async (req, res) => {
 
   // 2. Fetch relevant chunks from Django REST API (including password forwarding)
   try {
-    const searchResponse = await fetch(`${DJANGO_API_URL}/api/capsules/${slug}/search`, {
+    const requestPath = `/api/capsules/${slug}/search`;
+    const bodyString = JSON.stringify({ question, password });
+    const signHeaders = getSignatureHeaders('POST', requestPath, bodyString);
+    
+    const searchResponse = await fetch(`${DJANGO_API_URL}${requestPath}`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${INTERNAL_API_KEY}`
+        ...signHeaders
       },
-      body: JSON.stringify({ question, password })
+      body: bodyString
     });
 
     if (searchResponse.status === 401) {
@@ -147,7 +171,7 @@ app.get('/stream/:slug', async (req, res) => {
     domain = searchData.domain || 'general';
   } catch (err) {
     logger.error('Failed to retrieve capsule chunks from Django backend', { error: err.message, slug });
-    res.write(`data: ${JSON.stringify({ text: `I couldn't find enough information in the uploaded document to answer this.` })}\n\n`);
+    res.write(`data: ${JSON.stringify({ text: UNANSWERED_STRING })}\n\n`);
     res.write(`data: [DONE]\n\n`);
     res.end();
     return;
@@ -168,7 +192,7 @@ app.get('/stream/:slug', async (req, res) => {
     }
   } else {
     // If no relevant chunks are found
-    res.write(`data: ${JSON.stringify({ text: `I couldn't find enough information in the uploaded document to answer this.` })}\n\n`);
+    res.write(`data: ${JSON.stringify({ text: UNANSWERED_STRING })}\n\n`);
     res.write(`data: [DONE]\n\n`);
     res.end();
     return;
@@ -176,7 +200,7 @@ app.get('/stream/:slug', async (req, res) => {
 
   // 4. Construct the grounded dynamic tone RAG prompt
   const activeTone = domainTones[domain] || domainTones.general;
-  const systemPrompt = `You are a document assistant. You may ONLY answer questions using the provided document excerpts. If the answer is not in the excerpts, say exactly: "I couldn't find enough information in the uploaded document to answer this." Do not use any outside knowledge. Always cite the source chunk (page number and section title) at the end of your answer in the format [Page X, Section Y].
+  const systemPrompt = `You are a document assistant. You may ONLY answer questions using the provided document excerpts. If the answer is not in the excerpts, say exactly: "${UNANSWERED_STRING}" Do not use any outside knowledge. Always cite the source chunk (page number and section title) at the end of your answer in the format [Page X, Section Y].
 
 Domain context: ${activeTone}`;
 
@@ -254,7 +278,7 @@ User question: ${question}`;
     logAnalyticsHelper(slug, question, chunksData, fullReply);
   } catch (err) {
     logger.error('All LLM endpoints failed', { error: err.message });
-    res.write(`data: ${JSON.stringify({ text: `I couldn't find enough information in the uploaded document to answer this.` })}\n\n`);
+    res.write(`data: ${JSON.stringify({ text: UNANSWERED_STRING })}\n\n`);
     res.write(`data: [DONE]\n\n`);
     res.end();
   }
@@ -319,22 +343,25 @@ async function streamCompletion(response, clientRes, provider) {
 // Helper to log analytics to Django
 function logAnalyticsHelper(slug, question, chunksData, fullReply) {
   let wasAnswered = true;
-  if (fullReply.includes("This document doesn't cover that.")) {
+  if (fullReply.includes(UNANSWERED_STRING)) {
     wasAnswered = false;
   }
   const pageNumber = chunksData[0]?.page_number || null;
+  const requestPath = `/api/capsules/${slug}/analytics`;
+  const bodyString = JSON.stringify({
+    question,
+    was_answered: wasAnswered,
+    page_number: pageNumber
+  });
+  const signHeaders = getSignatureHeaders('POST', requestPath, bodyString);
 
-  fetch(`${DJANGO_API_URL}/api/capsules/${slug}/analytics`, {
+  fetch(`${DJANGO_API_URL}${requestPath}`, {
     method: 'POST',
     headers: { 
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${INTERNAL_API_KEY}`
+      ...signHeaders
     },
-    body: JSON.stringify({
-      question,
-      was_answered: wasAnswered,
-      page_number: pageNumber
-    })
+    body: bodyString
   }).then(async (res) => {
     if (!res.ok) {
       const txt = await res.text();
@@ -352,3 +379,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+

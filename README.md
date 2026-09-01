@@ -7,7 +7,7 @@ When you share a document, you create a **Capsule**. A capsule represents a sand
 
 ## 🚀 Features & Engineering Quality
 
-* **Production-Ready Security**: Strong protection against SSRF attacks during URL ingestion using `ipaddress` resolution blocking (blocks loopbacks, private networks, and internal metadata endpoints).
+* **Production-Ready Security**: Inter-service communication is secured via strict HMAC SHA-256 signatures and timestamp replay windows. The system also includes robust protection against SSRF attacks during URL ingestion using `ipaddress` resolution blocking (blocks loopbacks, private networks, and internal metadata endpoints).
 * **Scalable Architecture**: A split-backend microservice architecture. A Django REST backend handles secure ingestion, vectorization, and Postgres HNSW indexing, while a separate Express SSE server manages high-concurrency streaming and Redis rate limiting.
 * **100% Grounded AI & Observability**: AI is sandboxed to the document using HNSW pgvector semantic search. The system uses strict RAG failure handling to explicitly state when context is missing, rather than hallucinating. Complete JSON structured logging ensures full observability.
 * **Evaluation Framework**: Includes an integrated evaluation dataset (`evaluation/`) calculating `Recall@K` to objectively measure retrieval performance and quality.
