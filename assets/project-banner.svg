@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">ContextDrop</title>
+  <desc id="desc">Document ingestion • Vector search • Streaming AI responses</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080E1B"/>
+      <stop offset="0.58" stop-color="#101D35"/>
+      <stop offset="1" stop-color="#0B1224"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#39D7C2"/>
+      <stop offset="1" stop-color="#68E2F0"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#A9C5E8" stroke-opacity=".075" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="360" rx="24" fill="url(#bg)"/>
+  <rect width="1200" height="360" rx="24" fill="url(#grid)"/>
+  <circle cx="1010" cy="172" r="235" fill="#39D7C2" opacity=".055"/>
+  <circle cx="1000" cy="180" r="155" fill="none" stroke="#39D7C2" stroke-opacity=".18" stroke-width="1.5"/>
+  <path d="M0 300 C260 250 420 365 700 300 S1030 240 1200 280" fill="none" stroke="#68E2F0" stroke-opacity=".18" stroke-width="2"/>
+  <rect x="62" y="56" width="5" height="46" rx="2.5" fill="url(#glow)"/>
+  <text x="84" y="78" fill="#39D7C2" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="16" font-weight="700" letter-spacing="3">GENERATIVE AI  /  RETRIEVAL</text>
+  <text x="80" y="166" fill="#F4F7FC" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="47" font-weight="750" letter-spacing="-1.3">ContextDrop</text>
+  <text x="82" y="210" fill="#B9C7DA" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="21">Document ingestion • Vector search • Streaming AI responses</text>
+  <rect x="82" y="246" width="170" height="3" rx="1.5" fill="url(#glow)"/>
+  <text x="82" y="278" fill="#8FA3BD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13" letter-spacing="2">ENGINEERING / BUILDING / LEARNING</text>
+  <g transform="translate(805 55)">
+    <rect x="52" y="24" width="190" height="232" rx="16" fill="#152B3B" stroke="#39D7C2" stroke-width="2"/>
+    <path d="M88 74 h115 M88 98 h95 M88 122 h112" stroke="#A7C5D8" stroke-opacity=".65" stroke-width="7" stroke-linecap="round"/>
+    <rect x="88" y="153" width="116" height="52" rx="9" fill="#123F49" stroke="#39D7C2" stroke-opacity=".75"/>
+    <path d="M105 170 h80 M105 185 h58" stroke="#8CEBDD" stroke-width="4" stroke-linecap="round"/>
+    <path d="M245 93 C320 93 318 53 373 53 M245 188 C315 188 320 232 373 232" fill="none" stroke="#39D7C2" stroke-width="2.5" stroke-dasharray="6 7"/>
+    <g fill="#123F49" stroke="#39D7C2" stroke-width="2">
+      <circle cx="392" cy="53" r="27"/><circle cx="392" cy="142" r="27"/><circle cx="392" cy="232" r="27"/>
+    </g>
+    <g fill="#A2F6E9"><circle cx="383" cy="47" r="4"/><circle cx="400" cy="60" r="4"/><circle cx="383" cy="136" r="4"/><circle cx="400" cy="149" r="4"/><circle cx="383" cy="226" r="4"/><circle cx="400" cy="239" r="4"/></g>
+    <path d="M320 142 h43" stroke="#39D7C2" stroke-width="2" stroke-dasharray="4 5"/>
+    <circle cx="392" cy="142" r="39" fill="none" stroke="#39D7C2" stroke-opacity=".22" stroke-width="2"/>
+  </g>
+  <rect x="1" y="1" width="1198" height="358" rx="23" fill="none" stroke="#9CB6D6" stroke-opacity=".2"/>
+</svg>
