@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./assets/project-banner.svg" width="100%" alt="ContextDrop project banner"/>
+  <img src="https://raw.githubusercontent.com/suhasshetti02/suhasshetti02/main/assets/projects/contextdrop.svg" width="100%" alt="contextdrop project banner"/>
 </div>
 
 ---
