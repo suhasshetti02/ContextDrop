@@ -25,10 +25,14 @@ When you share a document, you create a **Capsule**. A capsule represents a sand
 
 ## 📸 Screenshots
 
-![Upload Page](/results/upload_page.jpeg)
-![Ingestion Progress](/results/ingestion_progress.jpeg)
-![Capsule Ready](/results/capsule_ready.jpeg)
-![Chat Interface](/results/chat_interface.jpeg)
+<p align="center">
+  <img src="results/upload_page.jpeg" width="49%" alt="ContextDrop upload page"/>
+  <img src="results/ingestion_progress.jpeg" width="49%" alt="ContextDrop document ingestion progress"/>
+</p>
+<p align="center">
+  <img src="results/capsule_ready.jpeg" width="49%" alt="ContextDrop capsule ready screen"/>
+  <img src="results/chat_interface.jpeg" width="49%" alt="ContextDrop document-grounded chat interface"/>
+</p>
 
 ## 🎨 Tech Stack & Architecture
 
