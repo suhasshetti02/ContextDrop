@@ -1,122 +1,115 @@
-# ContextDrop — Share Documents that Answer Back
+# ContextDrop — Share Documents That Answer Back
 
-> **TinyURL for understanding.** Upload a document or scrape a URL once, and share a secure conversational Q&A link with anyone.
+ContextDrop turns a document or web URL into a shareable Q&A capsule. A creator ingests content; readers ask questions through a chat interface; the backend retrieves relevant document chunks and streams grounded responses with source references.
 
-ContextDrop transforms static documents (PDFs, TXT) and web links into interactive, conversational knowledge capsules. 
-When you share a document, you create a **Capsule**. A capsule represents a sandboxed RAG (Retrieval-Augmented Generation) context. Readers click the link and immediately get a messaging-style chat interface where they can ask questions about the document, with answers grounded strictly in the provided text.
+> **Project status:** A multi-service prototype with a React/Vite client, Django REST API, and a Node/Express SSE service. External model providers and PostgreSQL/Redis must be configured separately.
 
-## 🚀 Features & Engineering Quality
+## Implemented capabilities
 
-* **Production-Ready Security**: Inter-service communication is secured via strict HMAC SHA-256 signatures and timestamp replay windows. The system also includes robust protection against SSRF attacks during URL ingestion using `ipaddress` resolution blocking (blocks loopbacks, private networks, and internal metadata endpoints).
-* **Scalable Architecture**: A split-backend microservice architecture. A Django REST backend handles secure ingestion, vectorization, and Postgres HNSW indexing, while a separate Express SSE server manages high-concurrency streaming and Redis rate limiting.
-* **100% Grounded AI & Observability**: AI is sandboxed to the document using HNSW pgvector semantic search. The system uses strict RAG failure handling to explicitly state when context is missing, rather than hallucinating. Complete JSON structured logging ensures full observability.
-* **Evaluation Framework**: Includes an integrated evaluation dataset (`evaluation/`) calculating `Recall@K` to objectively measure retrieval performance and quality.
-* **Document Ingestion with Smart Chunking**: Supports PDF, TXT, and Web URLs. Implements structure-aware text chunking (paragraph boundary detection) for superior embedding context.
-* **Verification and Traceability**: Inline, clickable page citations accompany every answer.
-* **Automated Domain Classification**: Zero-shot classifier detects if a document is Legal, Medical, Academic, etc., and adjusts the LLM persona.
-* **Capsule Dashboard**: Creators can view analytics, query heatmaps, and a log of unanswered questions to identify gaps in their documents.
-* **White-Labeling & Security**: Custom logo and accent color support, along with optional password protection for shared links.
+- Document and URL ingestion for PDF, TXT, and web content.
+- Capsule creation, access controls, and shareable capsule routes.
+- Text extraction and structure-aware chunking.
+- Embedding generation and PostgreSQL vector storage with pgvector / HNSW migrations.
+- Semantic retrieval and response grounding with source/page citations.
+- SSE-based response streaming through a separate Express service.
+- Redis-backed request limiting in the SSE service.
+- Inter-service request signing using HMAC-SHA256 and timestamp checks.
+- SSRF-related URL validation in the ingestion code.
+- Capsule analytics and unanswered-question views.
+- Evaluation scripts and a small retrieval question set.
 
-## 📸 Screenshots
+## Architecture
 
-![Upload Page](/results/upload_page.jpeg)
-![Ingestion Progress](/results/ingestion_progress.jpeg)
-![Capsule Ready](/results/capsule_ready.jpeg)
-![Chat Interface](/results/chat_interface.jpeg)
-
-## 🎨 Tech Stack & Architecture
-
-1. **Frontend**: React (TypeScript) + Vite, built with modular, reusable components.
-2. **REST API Backend**: Django & DRF + PostgreSQL (pgvector with HNSW indexing).
-3. **SSE Server**: Node.js & Express + Redis (Fail-closed rate limiting).
-4. **AI Models**: 
-   - Groq (`llama-3.3-70b-versatile`) for primary chat and domain classification.
-   - OpenAI (`text-embedding-3-small`) or Nomic (`nomic-embed-text-v1.5`) for embeddings.
-   - Ollama (`gemma4:e2b` and `nomic-embed-text`) as a local fallback for offline/free usage.
-
-```mermaid
-flowchart TD
-    User([User]) -->|Uploads File/URL| React[React Frontend]
-    User -->|Asks Question| React
-    
-    React -->|POST /api/ingest| Django[Django REST API]
-    React -->|GET /stream| NodeSSE[Node.js SSE Server]
-    
-    Django -->|Write| Postgres[(PostgreSQL + pgvector HNSW)]
-    Django -->|Generate Embeddings| Nomic/Ollama[Nomic/Ollama/OpenAI]
-    
-    NodeSSE -->|Check Limits| Redis[(Redis)]
-    NodeSSE -->|Internal Context Search| Django
-    NodeSSE -->|Prompt + Context| Groq2[Groq / Ollama]
-    Groq2 -->|Stream Tokens| NodeSSE
-    NodeSSE -->|Stream to Client| React
+```text
+React + TypeScript + Vite
+   ├── Django REST API
+   │     ├── capsule / ingestion / retrieval logic
+   │     └── PostgreSQL + pgvector
+   └── Express SSE service
+         ├── Redis rate-limit checks
+         ├── internal Django API calls
+         └── streamed LLM response
 ```
 
-## 🛠️ Setup & Development Guide
+The README and code identify Groq / Ollama for chat generation and OpenAI / Nomic / Ollama embedding options. Provider choice depends on runtime configuration; model names in documentation are not proof that a provider key or model endpoint is configured.
 
-### Prerequisites
-* Docker & Docker Compose
-* Python 3.10+
-* Node.js 18+
+## Technology
 
-### Step 1: Infrastructure (Database & Cache)
-Start the required PostgreSQL (with pgvector) and Redis containers:
+- Frontend: React, TypeScript, Vite.
+- Ingestion API: Python, Django, Django REST Framework.
+- Retrieval storage: PostgreSQL with pgvector.
+- Streaming: Node.js, Express, Server-Sent Events.
+- Rate limiting: Redis.
+- Embeddings / generation: provider adapters for hosted or local model endpoints.
+- Evaluation: retrieval question set and Recall@K script.
+
+## Repository layout
+
+- `frontend/` — React client and analytics UI.
+- `backend/contextdrop/` — Django project settings and routing.
+- `backend/capsules/` — capsule models, views, ingestion, retrieval and tests.
+- `sse-server/` — Express streaming server and tests.
+- `evaluation/` — questions and retrieval evaluation.
+- `docker-compose.yml` — local database/cache infrastructure.
+- `render.yaml` — deployment configuration.
+
+## Run locally
+
+Prerequisites: Docker / Docker Compose, Python 3.10+, Node.js 18+, and configured provider credentials as needed.
+
+1. Start infrastructure from the repository root:
+
 ```bash
 docker-compose up -d
 ```
 
-### Step 2: Backend Setup (Django)
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-2. Create and activate a Python virtual environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Copy `.env.example` to `.env` and fill in your configuration:
-   ```bash
-   cp .env.example .env
-   ```
-5. Apply migrations and start the server:
-   ```bash
-   python manage.py makemigrations
-   python manage.py migrate
-   python manage.py runserver
-   ```
-   *Runs on `http://localhost:8000`. Health checks available at `/api/health` and `/api/readiness`.*
+2. Django API:
 
-### Step 3: SSE Server Setup (Node.js)
-1. Navigate to the SSE server directory:
-   ```bash
-   cd sse-server
-   ```
-2. Install dependencies and start:
-   ```bash
-   npm install
-   cp .env.example .env
-   node index.js
-   ```
-   *Runs on `http://localhost:4000`. Health checks available at `/health` and `/readiness`.*
+```bash
+cd backend
+python -m venv .venv
+# Activate the environment
+pip install -r requirements.txt
+cp .env.example .env
+python manage.py migrate
+python manage.py runserver
+```
 
-### Step 4: Frontend Setup (React)
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies and start:
-   ```bash
-   npm install
-   npm run dev
-   ```
-   *Runs on `http://localhost:5173`*
+3. SSE server:
 
-## 🧪 Testing & Evaluation
-- **Backend Tests**: Run `python manage.py test capsules.tests` to execute unit tests for auth, ingestion, chunking, and vector search.
-- **SSE Server Tests**: Run `npm test` in the `sse-server` directory.
-- **RAG Evaluation**: See `evaluation/README.md` to run the `Recall@K` metric evaluation for semantic search accuracy.
+```bash
+cd sse-server
+npm install
+cp .env.example .env
+npm start
+```
+
+4. Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Check the service-specific environment example files and deployment configuration for port numbers, database settings, internal API secrets, Redis URL, model provider, and API keys. Do not assume a local provider is available unless it is running and configured.
+
+## Testing and evaluation
+
+- Django tests are under `backend/capsules/tests/` and cover authentication, chunking, ingestion, search, and SSRF-related cases.
+- Additional HMAC logic tests are under `backend/capsules/test_hmac_logic.py`.
+- SSE rate-limit tests are under `sse-server/test/`.
+- Retrieval evaluation is under `evaluation/`; inspect the evaluation README and dataset before interpreting its scores.
+
+## Security and known limitations
+
+- The system handles user-supplied files and URLs. Enforce upload limits, content-type validation, safe file storage, and SSRF protections at every ingestion boundary.
+- Keep internal HMAC secrets, model-provider keys, database passwords, and Redis credentials out of source control.
+- A successful retrieval score on the small included evaluation set is not a general accuracy guarantee.
+- LLM output can still be incorrect; source references show retrieved context, not an independent proof that every generated statement is true.
+- Validate authorization and password-protected capsule behavior at the API boundary; hiding UI elements is not access control.
+- Production deployment requires a managed PostgreSQL/pgvector database, Redis, persistent file handling, and correctly configured internal service URLs.
+
+## License
+
+See the repository for license and model/provider terms.
