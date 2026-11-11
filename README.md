@@ -1,3 +1,9 @@
+<div align="center">
+  <img src="./assets/project-banner.svg" width="100%" alt="ContextDrop project banner"/>
+</div>
+
+---
+
 # ContextDrop — Share Documents that Answer Back
 
 > **TinyURL for understanding.** Upload a document or scrape a URL once, and share a secure conversational Q&A link with anyone.
